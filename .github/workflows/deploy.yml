@@ -33,11 +33,13 @@ jobs:
       - name: Installa le dipendenze
         run: npm ci
 
-      - name: Crea la build
-        run: npm run build
-
       - name: Configura GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Crea la build
+        run: npm run build
 
       - name: Carica la build
         uses: actions/upload-pages-artifact@v3
