@@ -1,0 +1,32 @@
+:root {
+  font-family:
+    Inter, ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "SF Pro Text", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  color-scheme: light dark;
+  background: #f8fafc;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background: #f8fafc;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  overscroll-behavior-y: none;
+}
+
+button {
+  color: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    background: #07121e;
+  }
+}
