@@ -1,10 +1,17 @@
 import { useMemo, useState } from 'react';
+import { TypeIcon } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
+import {
+  activityTypeLabels,
+  isRateable,
+} from '../data/activityTypes';
 import { createRatingCategories } from '../data/ratingCategories';
 import type {
   Activity,
   ActivityReview,
   RatingCategory,
 } from '../types';
+import { createId } from '../utils/id';
 
 interface RatingsPageProps {
   activities: Activity[];
@@ -13,71 +20,15 @@ interface RatingsPageProps {
   onRemoveReview: (activityId: string) => void;
 }
 
-function calculateAverage(
-  categories: RatingCategory[],
-): number {
+function calculateAverage(categories: RatingCategory[]): number {
   if (categories.length === 0) {
     return 0;
   }
 
-  const total = categories.reduce(
-    (sum, category) => sum + category.score,
-    0,
+  return (
+    categories.reduce((sum, category) => sum + category.score, 0) /
+    categories.length
   );
-
-  return total / categories.length;
-}
-
-function getTypeLabel(activity: Activity): string {
-  switch (activity.type) {
-    case 'beach':
-      return 'Spiaggia';
-
-    case 'restaurant':
-      return 'Ristorante';
-
-    case 'city':
-      return 'Città';
-
-    case 'visit':
-      return 'Visita';
-
-    case 'walk':
-      return 'Passeggiata';
-
-    case 'parking':
-      return 'Parcheggio';
-
-    case 'custom':
-    default:
-      return 'Attività';
-  }
-}
-
-function getTypeEmoji(activity: Activity): string {
-  switch (activity.type) {
-    case 'beach':
-      return '🏖️';
-
-    case 'restaurant':
-      return '🍽️';
-
-    case 'city':
-      return '🏛️';
-
-    case 'visit':
-      return '🎟️';
-
-    case 'walk':
-      return '🚶';
-
-    case 'parking':
-      return '🅿️';
-
-    case 'custom':
-    default:
-      return '📍';
-  }
 }
 
 export function RatingsPage({
@@ -86,72 +37,59 @@ export function RatingsPage({
   onSaveReview,
   onRemoveReview,
 }: RatingsPageProps) {
-  const [selectedActivityId, setSelectedActivityId] =
-    useState<string | null>(null);
+  const [selectedActivityId, setSelectedActivityId] = useState<
+    string | null
+  >(null);
 
-  const [draftCategories, setDraftCategories] =
-    useState<RatingCategory[]>([]);
+  const [draftCategories, setDraftCategories] = useState<
+    RatingCategory[]
+  >([]);
 
   const [draftNote, setDraftNote] = useState('');
 
-  const selectedActivity = useMemo(
-    () =>
-      activities.find(
-        (activity) => activity.id === selectedActivityId,
-      ),
-    [activities, selectedActivityId],
+  const selectedActivity = activities.find(
+    (activity) => activity.id === selectedActivityId,
   );
 
   const reviewableActivities = useMemo(
-    () =>
-      activities.filter((activity) =>
-        ['beach', 'restaurant', 'city', 'visit', 'walk', 'custom']
-          .includes(activity.type),
-      ),
+    () => activities.filter((activity) => isRateable(activity.type)),
     [activities],
   );
 
   const rankedReviews = useMemo(() => {
     return reviews
-      .map((review) => {
+      .flatMap((review) => {
         const activity = activities.find(
           (item) => item.id === review.activityId,
         );
 
-        return {
-          review,
-          activity,
-          average: calculateAverage(review.categories),
-        };
+        return activity
+          ? [
+              {
+                review,
+                activity,
+                average: calculateAverage(review.categories),
+              },
+            ]
+          : [];
       })
-      .filter(
-        (
-          item,
-        ): item is {
-          review: ActivityReview;
-          activity: Activity;
-          average: number;
-        } => item.activity !== undefined,
-      )
       .sort((first, second) => second.average - first.average);
   }, [reviews, activities]);
 
   function openReview(activity: Activity) {
-    const existingReview = reviews.find(
+    const existing = reviews.find(
       (review) => review.activityId === activity.id,
     );
 
     setSelectedActivityId(activity.id);
 
     setDraftCategories(
-      existingReview
-        ? existingReview.categories.map((category) => ({
-            ...category,
-          }))
+      existing
+        ? existing.categories.map((category) => ({ ...category }))
         : createRatingCategories(activity.type),
     );
 
-    setDraftNote(existingReview?.note ?? '');
+    setDraftNote(existing?.note ?? '');
   }
 
   function closeReview() {
@@ -161,14 +99,9 @@ export function RatingsPage({
   }
 
   function updateScore(categoryId: string, score: number) {
-    setDraftCategories((currentCategories) =>
-      currentCategories.map((category) =>
-        category.id === categoryId
-          ? {
-              ...category,
-              score,
-            }
-          : category,
+    setDraftCategories((current) =>
+      current.map((category) =>
+        category.id === categoryId ? { ...category, score } : category,
       ),
     );
   }
@@ -178,17 +111,14 @@ export function RatingsPage({
       return;
     }
 
-    const existingReview = reviews.find(
-      (review) =>
-        review.activityId === selectedActivity.id,
+    const existing = reviews.find(
+      (review) => review.activityId === selectedActivity.id,
     );
 
     onSaveReview({
-      id: existingReview?.id ?? crypto.randomUUID(),
+      id: existing?.id ?? createId(),
       activityId: selectedActivity.id,
-      visitedAt:
-        existingReview?.visitedAt ??
-        new Date().toISOString(),
+      visitedAt: existing?.visitedAt ?? new Date().toISOString(),
       categories: draftCategories,
       note: draftNote.trim(),
     });
@@ -197,65 +127,48 @@ export function RatingsPage({
   }
 
   function handleRemoveReview(activity: Activity) {
-    const confirmed = window.confirm(
-      `Vuoi eliminare la pagella di "${activity.name}"?`,
-    );
-
-    if (!confirmed) {
-      return;
+    if (
+      window.confirm(
+        `Vuoi eliminare la pagella di “${activity.name}”?`,
+      )
+    ) {
+      onRemoveReview(activity.id);
     }
-
-    onRemoveReview(activity.id);
   }
 
   if (selectedActivity) {
-    const draftAverage =
-      calculateAverage(draftCategories);
-
     return (
       <main className="page">
-        <header className="review-editor-header">
-          <button
-            type="button"
-            className="back-button"
-            onClick={closeReview}
-          >
-            ‹ Indietro
-          </button>
+        <button
+          type="button"
+          className="back-button"
+          onClick={closeReview}
+        >
+          ‹ Indietro
+        </button>
 
-          <div>
-            <p className="eyebrow">
-              {getTypeLabel(selectedActivity)}
-            </p>
+        <PageHeader
+          eyebrow={activityTypeLabels[selectedActivity.type]}
+          title={selectedActivity.name}
+        />
 
-            <h1>{selectedActivity.name}</h1>
-          </div>
-        </header>
-
-        <section className="card review-score-card">
+        <section className="panel average-panel">
           <p className="section-label">Media provvisoria</p>
 
           <div className="large-average">
-            {draftAverage.toFixed(1)}
+            {calculateAverage(draftCategories).toFixed(1)}
+            <span>/10</span>
           </div>
-
-          <span>su 10</span>
         </section>
 
-        <section className="card rating-editor-card">
+        <section className="panel">
           <h2>Le vostre valutazioni</h2>
 
           <div className="rating-categories">
             {draftCategories.map((category) => (
-              <div
-                className="rating-category"
-                key={category.id}
-              >
+              <div className="rating-category" key={category.id}>
                 <div className="rating-category-heading">
-                  <label htmlFor={category.id}>
-                    {category.label}
-                  </label>
-
+                  <label htmlFor={category.id}>{category.label}</label>
                   <strong>{category.score}</strong>
                 </div>
 
@@ -267,41 +180,31 @@ export function RatingsPage({
                   step="1"
                   value={category.score}
                   onChange={(event) =>
-                    updateScore(
-                      category.id,
-                      Number(event.target.value),
-                    )
+                    updateScore(category.id, Number(event.target.value))
                   }
                 />
-
-                <div className="rating-scale">
-                  <span>1</span>
-                  <span>10</span>
-                </div>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="card review-note-card">
-          <label htmlFor="review-note">
-            Commento della giornata
+        <section className="panel">
+          <label htmlFor="review-note" className="field-label">
+            Commento
           </label>
 
           <textarea
             id="review-note"
-            rows={5}
+            rows={4}
             value={draftNote}
-            onChange={(event) =>
-              setDraftNote(event.target.value)
-            }
+            onChange={(event) => setDraftNote(event.target.value)}
             placeholder="Che cosa vi è piaciuto? Cosa avreste cambiato?"
           />
         </section>
 
         <button
           type="button"
-          className="save-review-button"
+          className="button primary block"
           onClick={handleSaveReview}
         >
           Salva pagella
@@ -312,120 +215,89 @@ export function RatingsPage({
 
   return (
     <main className="page">
-      <header className="page-header">
-        <p className="eyebrow">La vostra classifica</p>
-        <h1>Pagelle</h1>
-
-        <p className="page-subtitle">
-          Date un voto alle esperienze e scoprite la vincitrice
-          della vacanza.
-        </p>
-      </header>
+      <PageHeader
+        eyebrow="La vostra classifica"
+        title="Pagelle"
+        subtitle="Date un voto ai luoghi visitati e scoprite il preferito del viaggio."
+      />
 
       {rankedReviews.length > 0 && (
-        <section className="card leaderboard-card">
+        <section className="panel">
           <p className="section-label">Classifica generale</p>
-          <h2>Le migliori esperienze</h2>
+          <h2>I migliori di Parigi</h2>
 
-          <div className="leaderboard">
-            {rankedReviews.map(
-              ({ review, activity, average }, index) => (
-                <article
+          <ol className="leaderboard">
+            {rankedReviews.map(({ review, activity, average }, index) => (
+              <li key={review.id}>
+                <button
+                  type="button"
                   className="leaderboard-item"
-                  key={review.id}
+                  onClick={() => openReview(activity)}
+                  aria-label={`Modifica la pagella di ${activity.name}`}
                 >
-                  <div className="leaderboard-position">
-                    {index + 1}
-                  </div>
+                  <span className="house-number">{index + 1}</span>
 
-                  <div className="leaderboard-content">
-                    <strong>
-                      {getTypeEmoji(activity)} {activity.name}
-                    </strong>
+                  <span className="leaderboard-content">
+                    <strong>{activity.name}</strong>
+                    <small>{activityTypeLabels[activity.type]}</small>
+                  </span>
 
-                    <span>
-                      {getTypeLabel(activity)}
-                    </span>
-                  </div>
-
-                  <div className="leaderboard-score">
-                    {average.toFixed(1)}
-                  </div>
-
-                  <button
-                    type="button"
-                    className="small-edit-button"
-                    onClick={() => openReview(activity)}
-                    aria-label={`Modifica la pagella di ${activity.name}`}
-                  >
-                    ✏️
-                  </button>
-                </article>
-              ),
-            )}
-          </div>
+                  <span className="score">{average.toFixed(1)}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
-      <section className="ratings-section">
-        <div className="ratings-section-heading">
+      <section>
+        <div className="section-row">
           <div>
             <p className="section-label">Esperienze</p>
             <h2>Scegli cosa votare</h2>
           </div>
 
-          <span>
+          <span className="counter">
             {rankedReviews.length}/{reviewableActivities.length}
-            </span>
+          </span>
         </div>
 
-        <div className="ratings-activity-list">
+        <div className="rating-list">
           {reviewableActivities.map((activity) => {
             const review = reviews.find(
               (item) => item.activityId === activity.id,
             );
 
-            const average = review
-              ? calculateAverage(review.categories)
-              : null;
-
             return (
-              <article
-                className="card rating-activity-card"
-                key={activity.id}
-              >
+              <article className="rating-row" key={activity.id}>
                 <button
                   type="button"
-                  className="rating-activity-main"
+                  className="rating-row-main"
                   onClick={() => openReview(activity)}
                 >
-                  <span className="rating-activity-icon">
-                    {getTypeEmoji(activity)}
+                  <span className="place-icon">
+                    <TypeIcon type={activity.type} size={20} />
                   </span>
 
-                  <span className="rating-activity-content">
-                    <small>{getTypeLabel(activity)}</small>
+                  <span className="leaderboard-content">
+                    <small>{activityTypeLabels[activity.type]}</small>
                     <strong>{activity.name}</strong>
                   </span>
 
-                  {average !== null ? (
-                    <span className="activity-average">
-                      {average.toFixed(1)}
+                  {review ? (
+                    <span className="score">
+                      {calculateAverage(review.categories).toFixed(1)}
                     </span>
                   ) : (
-                    <span className="not-rated">
-                      Vota
-                    </span>
+                    <span className="vote-link">Vota</span>
                   )}
                 </button>
 
                 {review && (
                   <button
                     type="button"
-                    className="delete-review-button"
-                    onClick={() =>
-                      handleRemoveReview(activity)
-                    }
+                    className="link-button danger"
+                    onClick={() => handleRemoveReview(activity)}
                   >
                     Elimina pagella
                   </button>

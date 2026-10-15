@@ -1,17 +1,43 @@
 :root {
-  font-family:
-    Inter, ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Display",
-    "SF Pro Text", "Segoe UI", sans-serif;
+  --paper: #f5f0e6;
+  --paper-deep: #ebe3d2;
+  --card: #fffdf8;
+  --ink: #1b2437;
+  --ink-soft: #596276;
+  --rule: #e0d7c5;
+  --rule-strong: #c9bea8;
+
+  /* Blu delle targhe stradali, rosso bordeaux e oro dal PDF dell'itinerario */
+  --plaque: #17407f;
+  --plaque-deep: #102f5e;
+  --bordeaux: #8a3a4c;
+  --gold: #c9a961;
+
+  /* Verde delle fontane Wallace: usato per "fatto" e "prenotato" */
+  --wallace: #2f6b4f;
+  --danger: #a3262d;
+
+  --serif: 'Playfair Display Variable', Georgia, 'Times New Roman', serif;
+  --sans: 'Source Sans 3 Variable', system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+
+  font-family: var(--sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  color-scheme: light dark;
-  background: #f8fafc;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html {
   min-width: 320px;
-  min-height: 100%;
-  background: #f8fafc;
+  background: var(--paper);
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -21,12 +47,32 @@ body {
   overscroll-behavior-y: none;
 }
 
-button {
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
   color: inherit;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    background: #07121e;
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

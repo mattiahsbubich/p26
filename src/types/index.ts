@@ -1,32 +1,28 @@
-export type Coast = 'adriatica' | 'ionica' | 'interna';
-
-export type Wind =
-  | 'tramontana'
-  | 'maestrale'
-  | 'grecale'
-  | 'scirocco'
-  | 'ostro'
-  | 'variabile';
-
 export type ActivityType =
-  | 'beach'
-  | 'restaurant'
-  | 'city'
-  | 'visit'
+  | 'monument'
+  | 'museum'
+  | 'garden'
   | 'walk'
-  | 'parking'
+  | 'view'
+  | 'food'
+  | 'shop'
+  | 'logistics'
   | 'custom';
+
+/*
+ * required = biglietto/slot da prenotare
+ * check    = da verificare (disponibilità, orari, regole)
+ */
+export type BookingStatus = 'required' | 'check';
 
 export interface Activity {
   id: string;
   name: string;
   type: ActivityType;
-  coast?: Coast;
-  recommendedWinds?: Wind[];
 
   /*
    * Le coordinate sono facoltative.
-   * Se non sono presenti, l'attività non appare sulla mappa.
+   * Se non sono presenti, il luogo non appare sulla mappa.
    */
   latitude?: number;
   longitude?: number;
@@ -34,22 +30,61 @@ export interface Activity {
   address?: string;
   description: string;
   practicalNote?: string;
+  booking?: BookingStatus;
+
+  /* Da non perdere assolutamente (mostrato come "Imperdibile"). */
+  must?: boolean;
   custom?: boolean;
 }
 
-export interface Itinerary {
+/*
+ * Tipo di tappa "libera", cioè senza un luogo associato
+ * (pranzo, spostamenti, ecc.).
+ */
+export type StopKind = 'meal' | 'transport' | 'lodging' | 'free';
+
+/*
+ * Una tappa del programma di un giorno.
+ * - con activityId: è legata a un luogo (mappa, navigazione, pagelle);
+ * - senza activityId: è una tappa libera, descritta da title.
+ * title, se presente, sostituisce il nome del luogo.
+ */
+export interface PlanItem {
   id: string;
-  name: string;
-  coast: Coast;
-  recommendedWinds: Wind[];
-  activityIds: string[];
-  description: string;
+  activityId?: string;
+  title?: string;
+  kind?: StopKind;
+  time?: string;
+  note?: string;
+  done?: boolean;
 }
 
 export interface DayPlan {
   date: string;
-  selectedWind: Wind;
-  activityIds: string[];
+  items: PlanItem[];
+}
+
+export interface TripDayTip {
+  title: string;
+  text: string;
+  tone: 'info' | 'warning' | 'good';
+}
+
+export interface TripDay {
+  date: string;
+  shortDay: string;
+  dayNumber: string;
+  fullLabel: string;
+  zone: string;
+  tagline: string;
+  route: string;
+  badge?: string;
+
+  /* Colore della "linea" del giorno (stile métro). */
+  lineColor: string;
+  lineInk: string;
+
+  tips: TripDayTip[];
 }
 
 export interface RatingCategory {

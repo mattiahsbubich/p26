@@ -1,112 +1,134 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { defaultActivities } from '../data/activities';
 import type { Activity } from '../types';
+import { STORAGE_KEYS } from '../utils/storage';
+import {
+  parseStringArray,
+  usePersistentState,
+} from './usePersistentState';
 
-const CUSTOM_ACTIVITIES_KEY = 'p26-custom-activities';
-const COMPLETED_ACTIVITIES_KEY = 'p26-completed-activities';
-
-function readCustomActivities(): Activity[] {
-  try {
-    const value = localStorage.getItem(CUSTOM_ACTIVITIES_KEY);
-
-    if (!value) {
-      return [];
-    }
-
-    const parsed: unknown = JSON.parse(value);
-
-    return Array.isArray(parsed) ? (parsed as Activity[]) : [];
-  } catch {
-    return [];
+function parseActivities(raw: unknown): Activity[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
   }
+
+  return raw.filter(
+    (item): item is Activity =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as Activity).id === 'string' &&
+      typeof (item as Activity).name === 'string',
+  );
 }
 
-function readCompletedActivities(): string[] {
-  try {
-    const value = localStorage.getItem(COMPLETED_ACTIVITIES_KEY);
+/* Modifiche fatte dall'app a un luogo (nome, indirizzo, coordinate). */
+export type PlaceOverride = Partial<
+  Pick<Activity, 'name' | 'address' | 'latitude' | 'longitude'>
+>;
 
-    if (!value) {
-      return [];
-    }
-
-    const parsed: unknown = JSON.parse(value);
-
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string')
-      : [];
-  } catch {
-    return [];
-  }
+function parseOverrides(
+  raw: unknown,
+): Record<string, PlaceOverride> | undefined {
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+    ? (raw as Record<string, PlaceOverride>)
+    : undefined;
 }
 
 export function useActivities() {
   const [customActivities, setCustomActivities] =
-    useState<Activity[]>(readCustomActivities);
+    usePersistentState<Activity[]>(
+      STORAGE_KEYS.customActivities,
+      () => [],
+      parseActivities,
+    );
 
   const [completedActivityIds, setCompletedActivityIds] =
-    useState<string[]>(readCompletedActivities);
+    usePersistentState<string[]>(
+      STORAGE_KEYS.completed,
+      () => [],
+      parseStringArray,
+    );
 
-  const activities = [...defaultActivities, ...customActivities];
+  /*
+   * Avete già prenotato tutto: di partenza ogni biglietto è "prenotato".
+   * Si può comunque togliere la spunta dall'app.
+   */
+  const [bookedActivityIds, setBookedActivityIds] =
+    usePersistentState<string[]>(
+      STORAGE_KEYS.booked,
+      () =>
+        defaultActivities
+          .filter((activity) => activity.booking)
+          .map((activity) => activity.id),
+      parseStringArray,
+    );
 
-  function addActivity(activity: Activity) {
-    setCustomActivities((current) => {
-      const updated = [...current, activity];
+  const [overrides, setOverrides] = usePersistentState<
+    Record<string, PlaceOverride>
+  >(STORAGE_KEYS.placeOverrides, () => ({}), parseOverrides);
 
-      localStorage.setItem(
-        CUSTOM_ACTIVITIES_KEY,
-        JSON.stringify(updated),
-      );
+  const activities = useMemo(
+    () =>
+      [...defaultActivities, ...customActivities].map((activity) =>
+        overrides[activity.id]
+          ? { ...activity, ...overrides[activity.id] }
+          : activity,
+      ),
+    [customActivities, overrides],
+  );
 
-      return updated;
-    });
+  function toggleId(
+    setter: (next: (current: string[]) => string[]) => void,
+    id: string,
+  ) {
+    setter((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
   }
 
-  function toggleCompleted(activityId: string) {
-    setCompletedActivityIds((current) => {
-      const updated = current.includes(activityId)
-        ? current.filter((id) => id !== activityId)
-        : [...current, activityId];
-
-      localStorage.setItem(
-        COMPLETED_ACTIVITIES_KEY,
-        JSON.stringify(updated),
-      );
-
-      return updated;
-    });
+  function addActivity(activity: Activity) {
+    setCustomActivities((current) => [...current, activity]);
   }
 
   function removeCustomActivity(activityId: string) {
-    setCustomActivities((current) => {
-      const updated = current.filter(
-        (activity) => activity.id !== activityId,
-      );
+    setCustomActivities((current) =>
+      current.filter((activity) => activity.id !== activityId),
+    );
 
-      localStorage.setItem(
-        CUSTOM_ACTIVITIES_KEY,
-        JSON.stringify(updated),
-      );
+    setCompletedActivityIds((current) =>
+      current.filter((id) => id !== activityId),
+    );
 
-      return updated;
+    setBookedActivityIds((current) =>
+      current.filter((id) => id !== activityId),
+    );
+
+    setOverrides((current) => {
+      const { [activityId]: _removed, ...rest } = current;
+
+      return rest;
     });
+  }
 
-    setCompletedActivityIds((current) => {
-      const updated = current.filter((id) => id !== activityId);
-
-      localStorage.setItem(
-        COMPLETED_ACTIVITIES_KEY,
-        JSON.stringify(updated),
-      );
-
-      return updated;
-    });
+  function updatePlace(activityId: string, patch: PlaceOverride) {
+    setOverrides((current) => ({
+      ...current,
+      [activityId]: { ...current[activityId], ...patch },
+    }));
   }
 
   return {
     activities,
+    updatePlace,
     completedActivityIds,
+    bookedActivityIds,
     addActivity,
-    toggleCompleted,
     removeCustomActivity,
+    toggleCompleted: (id: string) =>
+      toggleId(setCompletedActivityIds, id),
+    toggleBooked: (id: string) =>
+      toggleId(setBookedActivityIds, id),
   };
 }

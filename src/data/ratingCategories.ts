@@ -4,16 +4,45 @@ import type {
 } from '../types';
 
 const categoryLabels: Record<ActivityType, string[]> = {
-  beach: [
-    'Mare',
-    'Paesaggio',
-    'Pulizia',
-    'Comodità',
-    'Tranquillità',
-    'Qualità/prezzo',
+  monument: [
+    'Bellezza',
+    'Atmosfera',
+    'Organizzazione',
+    'Vista',
+    'Ne è valsa la pena',
   ],
 
-  restaurant: [
+  museum: [
+    'Collezioni',
+    'Spazi',
+    'Organizzazione',
+    'Emozione',
+    'Esperienza',
+  ],
+
+  garden: [
+    'Bellezza',
+    'Tranquillità',
+    'Passeggiata',
+    'Atmosfera',
+  ],
+
+  walk: [
+    'Atmosfera',
+    'Bellezza',
+    'Piacevolezza',
+    'Autenticità',
+    'Esperienza',
+  ],
+
+  view: [
+    'Vista',
+    'Atmosfera',
+    'Organizzazione',
+    'Esperienza',
+  ],
+
+  food: [
     'Cibo',
     'Servizio',
     'Atmosfera',
@@ -21,36 +50,17 @@ const categoryLabels: Record<ActivityType, string[]> = {
     'Qualità/prezzo',
   ],
 
-  city: [
-    'Bellezza',
+  shop: [
     'Atmosfera',
-    'Cose da vedere',
-    'Pulizia',
-    'Vivibilità',
+    'Scelta',
+    'Prezzi',
     'Esperienza',
   ],
 
-  visit: [
-    'Interesse',
-    'Organizzazione',
-    'Location',
-    'Originalità',
-    'Esperienza',
-  ],
-
-  walk: [
-    'Paesaggio',
-    'Piacevolezza',
-    'Accessibilità',
-    'Tranquillità',
-    'Esperienza',
-  ],
-
-  parking: [
-    'Posizione',
+  logistics: [
     'Comodità',
-    'Sicurezza',
-    'Qualità/prezzo',
+    'Posizione',
+    'Esperienza',
   ],
 
   custom: [
@@ -68,6 +78,6 @@ export function createRatingCategories(
   return categoryLabels[activityType].map((label, index) => ({
     id: `${activityType}-${index}`,
     label,
-    score: 6,
+    score: 7,
   }));
 }

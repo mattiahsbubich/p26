@@ -1,3 +1,5 @@
+import { NavIcons } from './Icons';
+
 export type PageId =
   | 'program'
   | 'map'
@@ -13,33 +15,13 @@ interface BottomNavigationProps {
 const items: Array<{
   id: PageId;
   label: string;
-  icon: string;
+  icon: (props: { size?: number }) => React.ReactNode;
 }> = [
-  {
-    id: 'program',
-    label: 'Programma',
-    icon: '📅',
-  },
-  {
-    id: 'map',
-    label: 'Mappa',
-    icon: '🗺️',
-  },
-  {
-    id: 'activities',
-    label: 'Attività',
-    icon: '📍',
-  },
-  {
-    id: 'ratings',
-    label: 'Pagelle',
-    icon: '⭐️',
-  },
-  {
-    id: 'settings',
-    label: 'Altro',
-    icon: '⚙️',
-  },
+  { id: 'program', label: 'Programma', icon: NavIcons.program },
+  { id: 'map', label: 'Mappa', icon: NavIcons.map },
+  { id: 'activities', label: 'Luoghi', icon: NavIcons.places },
+  { id: 'ratings', label: 'Pagelle', icon: NavIcons.ratings },
+  { id: 'settings', label: 'Altro', icon: NavIcons.more },
 ];
 
 export function BottomNavigation({
@@ -51,30 +33,26 @@ export function BottomNavigation({
       className="bottom-navigation"
       aria-label="Navigazione principale"
     >
-      {items.map((item) => {
-        const isActive = currentPage === item.id;
+      <div className="bottom-navigation-inner">
+        {items.map((item) => {
+          const isActive = currentPage === item.id;
 
-        return (
-          <button
-            key={item.id}
-            type="button"
-            className={`navigation-item ${
-              isActive ? 'active' : ''
-            }`}
-            onClick={() => onChange(item.id)}
-            aria-current={isActive ? 'page' : undefined}
-          >
-            <span
-              className="navigation-icon"
-              aria-hidden="true"
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`navigation-item ${
+                isActive ? 'active' : ''
+              }`}
+              onClick={() => onChange(item.id)}
+              aria-current={isActive ? 'page' : undefined}
             >
-              {item.icon}
-            </span>
-
-            <span>{item.label}</span>
-          </button>
-        );
-      })}
+              {item.icon({ size: 24 })}
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 }

@@ -1,27 +1,25 @@
 import { useEffect, useState } from 'react';
 
-type ConnectionStatus =
-  | 'online'
-  | 'offline'
-  | 'ready';
+type ConnectionStatus = 'online' | 'offline' | 'ready';
+
+const content: Record<ConnectionStatus, string> = {
+  online: 'Connessione ripristinata',
+  offline: 'Modalità offline',
+  ready: 'App pronta per l’uso offline',
+};
 
 export function OfflineStatus() {
-  const [status, setStatus] =
-    useState<ConnectionStatus>(() =>
-      navigator.onLine ? 'online' : 'offline',
-    );
-
-  const [visible, setVisible] = useState(
-    !navigator.onLine,
+  const [status, setStatus] = useState<ConnectionStatus>(() =>
+    navigator.onLine ? 'online' : 'offline',
   );
+
+  const [visible, setVisible] = useState(!navigator.onLine);
 
   useEffect(() => {
     let hideTimeout: number | undefined;
 
-    function showTemporaryStatus(
-      nextStatus: ConnectionStatus,
-    ) {
-      setStatus(nextStatus);
+    function showTemporary(next: ConnectionStatus) {
+      setStatus(next);
       setVisible(true);
 
       window.clearTimeout(hideTimeout);
@@ -31,50 +29,22 @@ export function OfflineStatus() {
       }, 3500);
     }
 
-    function handleOnline() {
-      showTemporaryStatus('online');
-    }
+    const handleOnline = () => showTemporary('online');
+    const handleReady = () => showTemporary('ready');
 
     function handleOffline() {
       setStatus('offline');
       setVisible(true);
     }
 
-    function handleOfflineReady() {
-      showTemporaryStatus('ready');
-    }
-
-    window.addEventListener(
-      'online',
-      handleOnline,
-    );
-
-    window.addEventListener(
-      'offline',
-      handleOffline,
-    );
-
-    window.addEventListener(
-      'p26-offline-ready',
-      handleOfflineReady,
-    );
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('paris26-offline-ready', handleReady);
 
     return () => {
-      window.removeEventListener(
-        'online',
-        handleOnline,
-      );
-
-      window.removeEventListener(
-        'offline',
-        handleOffline,
-      );
-
-      window.removeEventListener(
-        'p26-offline-ready',
-        handleOfflineReady,
-      );
-
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('paris26-offline-ready', handleReady);
       window.clearTimeout(hideTimeout);
     };
   }, []);
@@ -83,33 +53,9 @@ export function OfflineStatus() {
     return null;
   }
 
-  const content = {
-    online: {
-      icon: '🌐',
-      label: 'Connessione ripristinata',
-    },
-
-    offline: {
-      icon: '📴',
-      label: 'Modalità offline',
-    },
-
-    ready: {
-      icon: '✅',
-      label: 'App pronta per l’uso offline',
-    },
-  }[status];
-
   return (
-    <div
-      className={`offline-status ${status}`}
-      role="status"
-    >
-      <span aria-hidden="true">
-        {content.icon}
-      </span>
-
-      <span>{content.label}</span>
+    <div className={`offline-status ${status}`} role="status">
+      {content[status]}
     </div>
   );
 }

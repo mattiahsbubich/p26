@@ -1,32 +1,31 @@
-# React + TypeScript + Vite
+# Parigi 2026
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Web app (PWA) per il viaggio a Parigi, 31 ottobre – 3 novembre 2026:
+programma giorno per giorno modificabile, mappa con il percorso del giorno,
+elenco dei luoghi con biglietti da prenotare e pagelle.
 
-Currently, two official plugins are available:
+## Sviluppo
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev      # http://localhost:5173/p26/
+npm run build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Dove modificare i dati
+
+- `src/data/activities.ts` – i luoghi (coordinate, note, biglietti)
+- `src/data/defaultPlans.ts` – l'itinerario originale di ogni giorno
+- `src/data/trip.ts` – giorni, colori, riquadri informativi, checklist
+
+La mappa è vettoriale (MapLibre + OpenFreeMap, dati OpenStreetMap), ricolorata in
+`src/utils/mapStyle.ts`; il worker di MapLibre viene copiato in `dist/maplibre/` da `vite.config.ts`.
+
+Le modifiche fatte dall'app (ordine, tappe tolte/aggiunte, spunte, pagelle)
+sono salvate nel `localStorage` del telefono con prefisso `paris26-`.
+
+## Deploy su GitHub Pages
+
+`base` in `vite.config.ts` è `/p26/`: deve coincidere con il nome del
+repository. Poi: repository → Settings → Pages → Source: *GitHub Actions*;
+il workflow in `.github/workflows/deploy.yml` pubblica a ogni push su `main`.

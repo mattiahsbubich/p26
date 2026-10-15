@@ -1,69 +1,29 @@
-import { useState } from 'react';
 import type { ActivityReview } from '../types';
+import { STORAGE_KEYS } from '../utils/storage';
+import { usePersistentState } from './usePersistentState';
 
-const REVIEWS_KEY = 'p26-activity-reviews';
-
-function readReviews(): ActivityReview[] {
-  try {
-    const savedValue = localStorage.getItem(REVIEWS_KEY);
-
-    if (!savedValue) {
-      return [];
-    }
-
-    const parsedValue: unknown = JSON.parse(savedValue);
-
-    return Array.isArray(parsedValue)
-      ? (parsedValue as ActivityReview[])
-      : [];
-  } catch {
-    return [];
-  }
+function parseReviews(raw: unknown): ActivityReview[] | undefined {
+  return Array.isArray(raw) ? (raw as ActivityReview[]) : undefined;
 }
 
 export function useReviews() {
-  const [reviews, setReviews] =
-    useState<ActivityReview[]>(readReviews);
-
-  function saveReviews(updatedReviews: ActivityReview[]) {
-    setReviews(updatedReviews);
-
-    localStorage.setItem(
-      REVIEWS_KEY,
-      JSON.stringify(updatedReviews),
-    );
-  }
+  const [reviews, setReviews] = usePersistentState<
+    ActivityReview[]
+  >(STORAGE_KEYS.reviews, () => [], parseReviews);
 
   function saveReview(review: ActivityReview) {
-    const existingIndex = reviews.findIndex(
-      (item) => item.activityId === review.activityId,
+    setReviews((current) =>
+      current.some((item) => item.activityId === review.activityId)
+        ? current.map((item) =>
+            item.activityId === review.activityId ? review : item,
+          )
+        : [...current, review],
     );
-
-    if (existingIndex === -1) {
-      saveReviews([...reviews, review]);
-      return;
-    }
-
-    const updatedReviews = reviews.map((item) =>
-      item.activityId === review.activityId
-        ? review
-        : item,
-    );
-
-    saveReviews(updatedReviews);
   }
 
   function removeReview(activityId: string) {
-    const updatedReviews = reviews.filter(
-      (review) => review.activityId !== activityId,
-    );
-
-    saveReviews(updatedReviews);
-  }
-
-  function getReview(activityId: string) {
-    return reviews.find(
-      (review) => review.activityId === activityId,
+    setReviews((current) =>
+      current.filter((review) => review.activityId !== activityId),
     );
   }
 
@@ -71,6 +31,5 @@ export function useReviews() {
     reviews,
     saveReview,
     removeReview,
-    getReview,
   };
 }

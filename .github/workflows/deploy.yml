@@ -1,4 +1,4 @@
-name: Deploy P26 to GitHub Pages
+name: Deploy Parigi 2026 to GitHub Pages
 
 on:
   push:

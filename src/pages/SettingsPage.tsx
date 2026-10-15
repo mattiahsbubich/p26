@@ -1,38 +1,97 @@
+import { useRef, useState } from 'react';
+import { PageHeader } from '../components/PageHeader';
+import { CheckIcon } from '../components/Icons';
 import {
-  useRef,
-  useState,
-} from 'react';
+  bookingPriority,
+  infoCards,
+  packingList,
+  tripDays,
+} from '../data/trip';
+import {
+  parseStringArray,
+  usePersistentState,
+} from '../hooks/usePersistentState';
+import type { Activity, DayPlan } from '../types';
 import {
   downloadBackup,
   readBackupFile,
   restoreBackup,
 } from '../utils/backup';
+import { getMapsProvider, type MapsProvider } from '../utils/maps';
+import {
+  ALL_STORAGE_KEYS,
+  STORAGE_KEYS,
+  writeStored,
+} from '../utils/storage';
 
-export function SettingsPage() {
-  const fileInputRef =
-    useRef<HTMLInputElement | null>(null);
+interface SettingsPageProps {
+  activities: Activity[];
+  dayPlans: DayPlan[];
+  bookedActivityIds: string[];
+  onToggleBooked: (activityId: string) => void;
+}
 
-  const [importError, setImportError] =
-    useState('');
+export function SettingsPage({
+  activities,
+  dayPlans,
+  bookedActivityIds,
+  onToggleBooked,
+}: SettingsPageProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importError, setImportError] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [provider, setProvider] = useState<MapsProvider>(getMapsProvider);
 
-  const [isImporting, setIsImporting] =
-    useState(false);
+  const [packed, setPacked] = usePersistentState<string[]>(
+    STORAGE_KEYS.packing,
+    () => [],
+    parseStringArray,
+  );
+
+  const bookings = bookingPriority.flatMap((id) => {
+    const activity = activities.find((item) => item.id === id);
+
+    if (!activity) {
+      return [];
+    }
+
+    const date = dayPlans.find((plan) =>
+      plan.items.some((item) => item.activityId === id),
+    )?.date;
+
+    return [
+      {
+        activity,
+        day: tripDays.find((item) => item.date === date),
+      },
+    ];
+  });
+
+  function changeProvider(next: MapsProvider) {
+    setProvider(next);
+    writeStored(STORAGE_KEYS.mapsProvider, next);
+  }
+
+  function togglePacked(id: string) {
+    setPacked((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  }
 
   function resetAppData() {
-    const confirmed = window.confirm(
-      'Vuoi cancellare itinerari, attività, completamenti, pagelle e preferenze?',
-    );
-
-    if (!confirmed) {
+    if (
+      !window.confirm(
+        'Vuoi cancellare itinerari modificati, luoghi aggiunti, spunte, pagelle e preferenze?',
+      )
+    ) {
       return;
     }
 
-    localStorage.removeItem('p26-selected-wind');
-    localStorage.removeItem('p26-visited-beaches');
-    localStorage.removeItem('p26-completed-activities');
-    localStorage.removeItem('p26-custom-activities');
-    localStorage.removeItem('p26-day-plans');
-    localStorage.removeItem('p26-activity-reviews');
+    for (const key of ALL_STORAGE_KEYS) {
+      localStorage.removeItem(key);
+    }
 
     window.location.reload();
   }
@@ -42,17 +101,15 @@ export function SettingsPage() {
       downloadBackup();
     } catch (error) {
       console.error(error);
-
-      window.alert(
-        'Non è stato possibile creare il backup.',
-      );
+      window.alert('Non è stato possibile creare il backup.');
     }
   }
 
   async function handleImport(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
-    const file = event.target.files?.[0];
+    const input = event.target;
+    const file = input.files?.[0];
 
     if (!file) {
       return;
@@ -64,20 +121,17 @@ export function SettingsPage() {
     try {
       const backup = await readBackupFile(file);
 
-      const confirmed = window.confirm(
-        'Importando il backup verranno sostituiti i dati attualmente presenti. Vuoi continuare?',
-      );
-
-      if (!confirmed) {
+      if (
+        !window.confirm(
+          'Importando il backup verranno sostituiti i dati attualmente presenti. Vuoi continuare?',
+        )
+      ) {
         return;
       }
 
       restoreBackup(backup);
 
-      window.alert(
-        'Backup importato correttamente. L’app verrà riavviata.',
-      );
-
+      window.alert('Backup importato correttamente. L’app verrà riavviata.');
       window.location.reload();
     } catch (error) {
       console.error(error);
@@ -89,102 +143,147 @@ export function SettingsPage() {
       );
     } finally {
       setIsImporting(false);
-
-      /*
-       * Permette di selezionare nuovamente lo stesso file.
-       */
-      event.target.value = '';
+      input.value = '';
     }
   }
 
   return (
     <main className="page">
-      <header className="page-header">
-        <p className="eyebrow">P26</p>
-        <h1>Altro</h1>
+      <PageHeader
+        eyebrow="Parigi 2026"
+        title="Altro"
+        subtitle="Prima di partire, backup e impostazioni."
+      />
 
-        <p className="page-subtitle">
-          Backup, dati locali e impostazioni
-          dell’app.
+      <section className="panel">
+        <p className="section-label">Prima di partire</p>
+        <h2>Prenotazioni</h2>
+
+        <p className="muted">
+          {bookings.filter(({ activity }) =>
+            bookedActivityIds.includes(activity.id),
+          ).length}{' '}
+          di {bookings.length} prenotate
         </p>
-      </header>
 
-      <section className="card settings-card">
-        <div className="settings-row">
-          <div>
-            <h2>Dati salvati sul dispositivo</h2>
+        <ul className="checklist">
+          {bookings.map(({ activity, day }) => {
+            const booked = bookedActivityIds.includes(activity.id);
 
-            <p>
-              Itinerari, vento, attività e pagelle
-              vengono conservati localmente.
-            </p>
-          </div>
+            return (
+              <li key={activity.id}>
+                <button
+                  type="button"
+                  className={`checklist-item ${booked ? 'checked' : ''}`}
+                  onClick={() => onToggleBooked(activity.id)}
+                  aria-pressed={booked}
+                >
+                  <span className="checkbox">
+                    {booked && <CheckIcon size={14} />}
+                  </span>
 
-          <span aria-hidden="true">💾</span>
-        </div>
+                  <span>
+                    <strong>{activity.name}</strong>
 
-        <div className="settings-row">
-          <div>
-            <h2>Funzionamento offline</h2>
+                    <small>
+                      {day ? day.fullLabel : 'Non in programma'}
+                      {activity.booking === 'check' && ' · verificare slot'}
+                    </small>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
 
-            <p>
-            Programma, attività e pagelle sono
-            disponibili anche senza connessione.
-            La cartografia potrebbe richiedere Internet.
-            </p>
-          </div>
+      <section className="panel">
+        <h2>Da avere sempre con voi</h2>
 
-          <span aria-hidden="true">📴</span>
+        <ul className="checklist">
+          {packingList.map((item) => {
+            const checked = packed.includes(item.id);
+
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className={`checklist-item ${checked ? 'checked' : ''}`}
+                  onClick={() => togglePacked(item.id)}
+                  aria-pressed={checked}
+                >
+                  <span className="checkbox">
+                    {checked && <CheckIcon size={14} />}
+                  </span>
+
+                  <span>{item.label}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      {infoCards.map((card) => (
+        <aside className="callout info" key={card.title}>
+          <h3>{card.title}</h3>
+          <p>{card.text}</p>
+        </aside>
+      ))}
+
+      <section className="panel">
+        <p className="section-label">Navigazione</p>
+        <h2>App mappe preferita</h2>
+
+        <p className="muted">
+          I pulsanti “Mezzi” e “A piedi” aprono questa app.
+        </p>
+
+        <div className="segmented">
+          <button
+            type="button"
+            className={provider === 'apple' ? 'selected' : ''}
+            onClick={() => changeProvider('apple')}
+          >
+            Apple Mappe
+          </button>
+
+          <button
+            type="button"
+            className={provider === 'google' ? 'selected' : ''}
+            onClick={() => changeProvider('google')}
+          >
+            Google Maps
+          </button>
         </div>
       </section>
 
-      <section className="card backup-card">
-        <p className="section-label">
-          Sicurezza dei dati
-        </p>
+      <section className="panel">
+        <p className="section-label">Sicurezza dei dati</p>
+        <h2>Backup del viaggio</h2>
 
-        <h2>Backup della vacanza</h2>
-
-        <p>
-          Esporta un file contenente itinerari,
-          attività, completamenti e pagelle.
+        <p className="muted">
+          Tutto è salvato sul tuo telefono. Esporta un file con
+          itinerario, luoghi, spunte e pagelle: puoi anche
+          mandarlo all’altro telefono e importarlo lì.
         </p>
 
         <div className="backup-actions">
           <button
             type="button"
-            className="backup-button"
+            className="button outline"
             onClick={handleExport}
           >
-            <span aria-hidden="true">⬇️</span>
-
-            <span>
-              <strong>Esporta backup</strong>
-              <small>Salva un file JSON</small>
-            </span>
+            Esporta backup
           </button>
 
           <button
             type="button"
-            className="backup-button"
-            onClick={() =>
-              fileInputRef.current?.click()
-            }
+            className="button outline"
+            onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
           >
-            <span aria-hidden="true">⬆️</span>
-
-            <span>
-              <strong>
-                {isImporting
-                  ? 'Importazione...'
-                  : 'Importa backup'}
-              </strong>
-
-              <small>
-                Ripristina i dati salvati
-              </small>
-            </span>
+            {isImporting ? 'Importazione...' : 'Importa backup'}
           </button>
         </div>
 
@@ -201,16 +300,19 @@ export function SettingsPage() {
             {importError}
           </p>
         )}
+
+        <p className="muted small-print">
+          Offline: programma, luoghi e pagelle funzionano anche senza
+          connessione. La mappa mostra solo le zone già viste.
+        </p>
       </section>
 
       <section className="danger-zone">
-        <p className="section-label">
-          Zona pericolosa
-        </p>
+        <p className="section-label">Zona pericolosa</p>
 
         <button
           type="button"
-          className="danger-button"
+          className="button danger-solid block"
           onClick={resetAppData}
         >
           Reimposta tutti i dati dell’app

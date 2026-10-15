@@ -1,175 +1,171 @@
-import { useState } from 'react';
-import type { DayPlan, Wind } from '../types';
-
-const DAY_PLANS_KEY = 'p26-day-plans';
-
-const tripDates = [
-  '2026-08-09',
-  '2026-08-10',
-  '2026-08-11',
-  '2026-08-12',
-  '2026-08-13',
-];
+import { tripDays } from '../data/trip';
+import { createDefaultPlan } from '../data/defaultPlans';
+import type { DayPlan, PlanItem } from '../types';
+import { STORAGE_KEYS } from '../utils/storage';
+import { usePersistentState } from './usePersistentState';
 
 function createDefaultPlans(): DayPlan[] {
-  return tripDates.map((date) => ({
-    date,
-    selectedWind: 'variabile',
-    activityIds: [],
-  }));
+  return tripDays.map((day) => createDefaultPlan(day.date));
 }
 
-function readDayPlans(): DayPlan[] {
-  try {
-    const savedValue = localStorage.getItem(DAY_PLANS_KEY);
+function isPlanItem(value: unknown): value is PlanItem {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as PlanItem).id === 'string'
+  );
+}
 
-    if (!savedValue) {
-      return createDefaultPlans();
-    }
-
-    const parsedValue: unknown = JSON.parse(savedValue);
-
-    if (!Array.isArray(parsedValue)) {
-      return createDefaultPlans();
-    }
-
-    const savedPlans = parsedValue as DayPlan[];
-
-    return tripDates.map((date) => {
-      const savedPlan = savedPlans.find((plan) => plan.date === date);
-
-      return (
-        savedPlan ?? {
-          date,
-          selectedWind: 'variabile',
-          activityIds: [],
-        }
-      );
-    });
-  } catch {
-    return createDefaultPlans();
+function parseDayPlans(raw: unknown): DayPlan[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
   }
+
+  const saved = raw as Array<Partial<DayPlan>>;
+
+  return tripDays.map((day) => {
+    const savedPlan = saved.find((plan) => plan?.date === day.date);
+
+    if (!savedPlan || !Array.isArray(savedPlan.items)) {
+      return createDefaultPlan(day.date);
+    }
+
+    return {
+      date: day.date,
+      items: savedPlan.items.filter(isPlanItem),
+    };
+  });
 }
 
 export function useDayPlans() {
-  const [dayPlans, setDayPlans] = useState<DayPlan[]>(readDayPlans);
+  const [dayPlans, setDayPlans] = usePersistentState<DayPlan[]>(
+    STORAGE_KEYS.dayPlans,
+    createDefaultPlans,
+    parseDayPlans,
+  );
 
-  function savePlans(updatedPlans: DayPlan[]) {
-    setDayPlans(updatedPlans);
-    localStorage.setItem(DAY_PLANS_KEY, JSON.stringify(updatedPlans));
-  }
-
-  function updateWind(date: string, wind: Wind) {
-    const updatedPlans = dayPlans.map((plan) =>
-      plan.date === date
-        ? {
-            ...plan,
-            selectedWind: wind,
-          }
-        : plan,
-    );
-
-    savePlans(updatedPlans);
-  }
-
-  function addActivityToDay(date: string, activityId: string) {
-    const updatedPlans = dayPlans.map((plan) => {
-      if (plan.date !== date) {
-        return plan;
-      }
-
-      if (plan.activityIds.includes(activityId)) {
-        return plan;
-      }
-
-      return {
-        ...plan,
-        activityIds: [...plan.activityIds, activityId],
-      };
-    });
-
-    savePlans(updatedPlans);
-  }
-
-  function removeActivityFromDay(date: string, activityId: string) {
-    const updatedPlans = dayPlans.map((plan) =>
-      plan.date === date
-        ? {
-            ...plan,
-            activityIds: plan.activityIds.filter(
-              (id) => id !== activityId,
-            ),
-          }
-        : plan,
-    );
-
-    savePlans(updatedPlans);
-  }
-
-  function moveActivity(
+  function updateDay(
     date: string,
-    activityId: string,
+    change: (items: PlanItem[]) => PlanItem[],
+  ) {
+    setDayPlans((current) =>
+      current.map((plan) =>
+        plan.date === date
+          ? { ...plan, items: change(plan.items) }
+          : plan,
+      ),
+    );
+  }
+
+  function addItem(date: string, item: PlanItem) {
+    updateDay(date, (items) => [...items, item]);
+  }
+
+  function removeItem(date: string, itemId: string) {
+    updateDay(date, (items) =>
+      items.filter((item) => item.id !== itemId),
+    );
+  }
+
+  function updateItem(
+    date: string,
+    itemId: string,
+    patch: Partial<PlanItem>,
+  ) {
+    updateDay(date, (items) =>
+      items.map((item) =>
+        item.id === itemId ? { ...item, ...patch } : item,
+      ),
+    );
+  }
+
+  function moveItem(
+    date: string,
+    itemId: string,
     direction: 'up' | 'down',
   ) {
-    const updatedPlans = dayPlans.map((plan) => {
-      if (plan.date !== date) {
-        return plan;
+    updateDay(date, (items) => {
+      const index = items.findIndex((item) => item.id === itemId);
+      const target = direction === 'up' ? index - 1 : index + 1;
+
+      if (index === -1 || target < 0 || target >= items.length) {
+        return items;
       }
 
-      const currentIndex = plan.activityIds.indexOf(activityId);
+      const next = [...items];
 
-      if (currentIndex === -1) {
-        return plan;
-      }
+      [next[index], next[target]] = [next[target], next[index]];
 
-      const nextIndex =
-        direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-      if (nextIndex < 0 || nextIndex >= plan.activityIds.length) {
-        return plan;
-      }
-
-      const updatedActivityIds = [...plan.activityIds];
-
-      [
-        updatedActivityIds[currentIndex],
-        updatedActivityIds[nextIndex],
-      ] = [
-        updatedActivityIds[nextIndex],
-        updatedActivityIds[currentIndex],
-      ];
-
-      return {
-        ...plan,
-        activityIds: updatedActivityIds,
-      };
+      return next;
     });
-
-    savePlans(updatedPlans);
   }
 
-  function copySuggestedItinerary(
-    date: string,
-    activityIds: string[],
+  function moveItemToDay(
+    fromDate: string,
+    itemId: string,
+    toDate: string,
   ) {
-    const updatedPlans = dayPlans.map((plan) =>
-      plan.date === date
-        ? {
-            ...plan,
-            activityIds: [...activityIds],
-          }
-        : plan,
-    );
+    if (fromDate === toDate) {
+      return;
+    }
 
-    savePlans(updatedPlans);
+    setDayPlans((current) => {
+      const item = current
+        .find((plan) => plan.date === fromDate)
+        ?.items.find((candidate) => candidate.id === itemId);
+
+      if (!item) {
+        return current;
+      }
+
+      return current.map((plan) => {
+        if (plan.date === fromDate) {
+          return {
+            ...plan,
+            items: plan.items.filter(
+              (candidate) => candidate.id !== itemId,
+            ),
+          };
+        }
+
+        if (plan.date === toDate) {
+          return { ...plan, items: [...plan.items, item] };
+        }
+
+        return plan;
+      });
+    });
+  }
+
+  function resetDay(date: string) {
+    setDayPlans((current) =>
+      current.map((plan) =>
+        plan.date === date ? createDefaultPlan(date) : plan,
+      ),
+    );
+  }
+
+  function removeActivityEverywhere(activityId: string) {
+    setDayPlans((current) =>
+      current.map((plan) => ({
+        ...plan,
+        items: plan.items.filter(
+          (item) => item.activityId !== activityId,
+        ),
+      })),
+    );
   }
 
   return {
     dayPlans,
-    updateWind,
-    addActivityToDay,
-    removeActivityFromDay,
-    moveActivity,
-    copySuggestedItinerary,
+    addItem,
+    removeItem,
+    updateItem,
+    moveItem,
+    moveItemToDay,
+    resetDay,
+    removeActivityEverywhere,
   };
 }
+
+export type DayPlansApi = ReturnType<typeof useDayPlans>;

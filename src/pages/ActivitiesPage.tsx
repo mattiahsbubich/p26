@@ -1,408 +1,352 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { BookingBadge } from '../components/BookingBadge';
+import { DirectionsLinks } from '../components/DirectionsLinks';
+import { EditPlaceSheet } from '../components/EditPlaceSheet';
+import { CheckIcon, TypeIcon } from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
+import { PlaceForm } from '../components/PlaceForm';
+import { Sheet } from '../components/Sheet';
+import {
+  activityTypeLabels,
+  activityTypeOrder,
+  isRateable,
+} from '../data/activityTypes';
+import { tripDays } from '../data/trip';
 import type {
   Activity,
   ActivityType,
+  DayPlan,
 } from '../types';
-
-import {
-  createAppleMapsDirectionsUrl,
-  createAppleMapsViewUrl,
-} from '../utils/maps';
 
 interface ActivitiesPageProps {
   activities: Activity[];
   completedActivityIds: string[];
+  bookedActivityIds: string[];
+  dayPlans: DayPlan[];
   onToggleCompleted: (activityId: string) => void;
+  onToggleBooked: (activityId: string) => void;
   onAddActivity: (activity: Activity) => void;
   onRemoveCustomActivity: (activityId: string) => void;
+  onAddToDay: (date: string, activityId: string) => void;
+  onUpdatePlace: (
+    activityId: string,
+    patch: Pick<Activity, 'name' | 'address' | 'latitude' | 'longitude'>,
+  ) => void;
 }
 
-interface GeocodingResult {
-  lat: string;
-  lon: string;
-  display_name: string;
-}
-
-const typeLabels: Record<ActivityType, string> = {
-  beach: 'Spiaggia',
-  restaurant: 'Ristorante',
-  city: 'Città',
-  visit: 'Visita',
-  walk: 'Passeggiata',
-  parking: 'Parcheggio',
-  custom: 'Altro',
-};
+type Filter = 'all' | 'must' | 'booking' | 'unplanned' | ActivityType;
 
 export function ActivitiesPage({
   activities,
   completedActivityIds,
+  bookedActivityIds,
+  dayPlans,
   onToggleCompleted,
+  onToggleBooked,
   onAddActivity,
   onRemoveCustomActivity,
+  onAddToDay,
+  onUpdatePlace,
 }: ActivitiesPageProps) {
+  const [filter, setFilter] = useState<Filter>('all');
   const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState('');
-  const [type, setType] =
-    useState<ActivityType>('custom');
-  const [description, setDescription] = useState('');
-  const [address, setAddress] = useState('');
+  const [planning, setPlanning] = useState<Activity | null>(null);
+  const [editing, setEditing] = useState<Activity | null>(null);
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [formError, setFormError] = useState('');
+  const daysByActivity = useMemo(() => {
+    const map = new Map<string, string[]>();
 
-  async function geocodeAddress(
-    addressToSearch: string,
-  ): Promise<{
-    latitude: number;
-    longitude: number;
-    normalizedAddress: string;
-  } | null> {
-    const searchParams = new URLSearchParams({
-      q: `${addressToSearch}, Puglia, Italia`,
-      format: 'jsonv2',
-      limit: '1',
-      countrycodes: 'it',
-    });
-
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?${searchParams.toString()}`,
-      {
-        headers: {
-          Accept: 'application/json',
-        },
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        'Il servizio di ricerca degli indirizzi non è disponibile.',
-      );
-    }
-
-    const results =
-      (await response.json()) as GeocodingResult[];
-
-    const result = results[0];
-
-    if (!result) {
-      return null;
-    }
-
-    return {
-      latitude: Number(result.lat),
-      longitude: Number(result.lon),
-      normalizedAddress: result.display_name,
-    };
-  }
-
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
-    const trimmedName = name.trim();
-    const trimmedAddress = address.trim();
-
-    if (!trimmedName) {
-      return;
-    }
-
-    setIsSaving(true);
-    setFormError('');
-
-    try {
-      let coordinates:
-        | {
-            latitude: number;
-            longitude: number;
-            normalizedAddress: string;
-          }
-        | null = null;
-
-      if (trimmedAddress) {
-        coordinates = await geocodeAddress(trimmedAddress);
-
-        if (!coordinates) {
-          setFormError(
-            'Indirizzo non trovato. Prova a inserire anche città e provincia.',
-          );
-
-          return;
+    for (const plan of dayPlans) {
+      for (const item of plan.items) {
+        if (item.activityId) {
+          map.set(item.activityId, [
+            ...(map.get(item.activityId) ?? []),
+            plan.date,
+          ]);
         }
       }
-
-      onAddActivity({
-        id: crypto.randomUUID(),
-        name: trimmedName,
-        type,
-        latitude: coordinates?.latitude,
-        longitude: coordinates?.longitude,
-        address:
-          coordinates?.normalizedAddress ??
-          (trimmedAddress || undefined),
-        description:
-          description.trim() ||
-          'Attività personalizzata.',
-        custom: true,
-      });
-
-      setName('');
-      setType('custom');
-      setDescription('');
-      setAddress('');
-      setFormError('');
-      setShowForm(false);
-    } catch (error) {
-      console.error(error);
-
-      setFormError(
-        'Non è stato possibile cercare l’indirizzo. Controlla la connessione oppure lascia il campo vuoto.',
-      );
-    } finally {
-      setIsSaving(false);
     }
-  }
+
+    return map;
+  }, [dayPlans]);
+
+  const presentTypes = activityTypeOrder.filter((type) =>
+    activities.some((activity) => activity.type === type),
+  );
+
+  const visible = activities.filter((activity) => {
+    switch (filter) {
+      case 'all':
+        return true;
+
+      case 'must':
+        return Boolean(activity.must);
+
+      case 'booking':
+        return Boolean(activity.booking);
+
+      case 'unplanned':
+        return !daysByActivity.has(activity.id);
+
+      default:
+        return activity.type === filter;
+    }
+  });
+
+  const rateable = activities.filter((activity) =>
+    isRateable(activity.type),
+  );
+
+  const doneCount = rateable.filter((activity) =>
+    completedActivityIds.includes(activity.id),
+  ).length;
 
   function handleDelete(activity: Activity) {
-    const confirmed = window.confirm(
-      `Vuoi eliminare "${activity.name}"?`,
-    );
-
-    if (!confirmed) {
-      return;
+    if (window.confirm(`Eliminare “${activity.name}”?`)) {
+      onRemoveCustomActivity(activity.id);
     }
-
-    onRemoveCustomActivity(activity.id);
   }
+
+  const filters: Array<{ id: Filter; label: string }> = [
+    { id: 'all', label: 'Tutti' },
+    { id: 'must', label: 'Imperdibili' },
+    { id: 'booking', label: 'Biglietti' },
+    { id: 'unplanned', label: 'Non in programma' },
+    ...presentTypes.map((type) => ({
+      id: type as Filter,
+      label: activityTypeLabels[type],
+    })),
+  ];
 
   return (
     <main className="page">
-      <header className="page-header activities-header">
-        <div>
-          <p className="eyebrow">Programma</p>
-          <h1>Attività</h1>
-
-          <p className="page-subtitle">
-            {completedActivityIds.length} di {activities.length}{' '}
-            completate
-          </p>
-        </div>
-
-        <button
-          type="button"
-          className="primary-add-button"
-          onClick={() => {
-            setShowForm((current) => !current);
-            setFormError('');
-          }}
-        >
-          {showForm ? 'Chiudi' : '+ Aggiungi'}
-        </button>
-      </header>
-
-      {showForm && (
-        <form
-          className="card activity-form"
-          onSubmit={handleSubmit}
-        >
-          <h2>Nuova attività</h2>
-
-          <label>
-            Nome
-            <input
-              value={name}
-              onChange={(event) =>
-                setName(event.target.value)
-              }
-              placeholder="Es. Cena a Otranto"
-              required
-            />
-          </label>
-
-          <label>
-            Tipo
-            <select
-              value={type}
-              onChange={(event) =>
-                setType(
-                  event.target.value as ActivityType,
-                )
-              }
-            >
-              {Object.entries(typeLabels).map(
-                ([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ),
-              )}
-            </select>
-          </label>
-
-          <label>
-            Indirizzo
-            <input
-              value={address}
-              onChange={(event) =>
-                setAddress(event.target.value)
-              }
-              placeholder="Facoltativo, es. Piazza del Popolo, Otranto"
-            />
-
-            <span className="field-help">
-              Inserendolo verrà creato automaticamente un
-              pin sulla mappa.
-            </span>
-          </label>
-
-          <label>
-            Descrizione
-            <textarea
-              value={description}
-              onChange={(event) =>
-                setDescription(event.target.value)
-              }
-              placeholder="Informazioni utili..."
-              rows={3}
-            />
-          </label>
-
-          {formError && (
-            <p className="form-error" role="alert">
-              {formError}
-            </p>
-          )}
-
+      <PageHeader
+        eyebrow="Programma"
+        title="Luoghi"
+        subtitle={`${doneCount} di ${rateable.length} fatti`}
+        action={
           <button
-            type="submit"
-            className="save-button"
-            disabled={isSaving}
+            type="button"
+            className="button small primary"
+            onClick={() => setShowForm(true)}
           >
-            {isSaving
-              ? 'Ricerca indirizzo...'
-              : 'Salva attività'}
+            + Nuovo
           </button>
-        </form>
-      )}
+        }
+      />
 
-      <div className="beach-list">
-        {activities.map((activity) => {
-          const isCompleted =
-            completedActivityIds.includes(activity.id);
+      <div className="filter-bar" role="tablist">
+        {filters.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={filter === item.id}
+            className={`filter-chip ${
+              filter === item.id ? 'selected' : ''
+            }`}
+            onClick={() => setFilter(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
-          const hasMapPosition =
-            typeof activity.latitude === 'number' &&
-            typeof activity.longitude === 'number';
+      <div className="place-list">
+        {visible.length === 0 && (
+          <div className="empty-state">
+            <h3>Nessun luogo</h3>
+            <p>Nessun luogo corrisponde a questo filtro.</p>
+          </div>
+        )}
 
-          const appleMapsViewUrl =
-            createAppleMapsViewUrl(activity);
-
-          const appleMapsDirectionsUrl =
-            createAppleMapsDirectionsUrl(activity);
+        {visible.map((activity) => {
+          const isDone = completedActivityIds.includes(activity.id);
+          const days = daysByActivity.get(activity.id) ?? [];
 
           return (
             <article
               key={activity.id}
-              className={`card beach-card ${
-                isCompleted ? 'visited' : ''
-              }`}
+              className={`place-card ${isDone ? 'done' : ''}`}
             >
-              <div className="beach-card-header">
-                <div>
-                  <p className="section-label">
-                    {typeLabels[activity.type]}
-                  </p>
+              <div className="place-card-header">
+                <span className="place-icon">
+                  <TypeIcon type={activity.type} size={22} />
+                </span>
 
+                <div className="place-title">
+                  <p className="section-label">
+                    {activityTypeLabels[activity.type]}
+                  </p>
                   <h2>{activity.name}</h2>
                 </div>
 
-                <button
-                  type="button"
-                  className="check-button"
-                  onClick={() =>
-                    onToggleCompleted(activity.id)
-                  }
-                  aria-label={
-                    isCompleted
-                      ? `Segna ${activity.name} come non completata`
-                      : `Segna ${activity.name} come completata`
-                  }
-                >
-                  {isCompleted ? '✓' : ''}
-                </button>
+                {isRateable(activity.type) && (
+                  <button
+                    type="button"
+                    className="check-button"
+                    onClick={() => onToggleCompleted(activity.id)}
+                    aria-pressed={isDone}
+                    aria-label={
+                      isDone
+                        ? `Segna ${activity.name} come non fatto`
+                        : `Segna ${activity.name} come fatto`
+                    }
+                  >
+                    {isDone && <CheckIcon size={16} />}
+                  </button>
+                )}
               </div>
 
-              <p>{activity.description}</p>
+              <p className="place-description">
+                {activity.description}
+              </p>
 
               {activity.address && (
-                <p className="activity-address">
-                  📍 {activity.address}
-                </p>
+                <p className="place-address">{activity.address}</p>
               )}
 
-              {hasMapPosition && (
-                <>
-                  <span className="map-pin-badge">
-                    Visibile sulla mappa
-                  </span>
+              <div className="stop-meta">
+                {activity.must && (
+                  <span className="stub must">Imperdibile</span>
+                )}
 
-                  <div className="external-map-actions">
-                    {appleMapsViewUrl && (
-                      <a
-                        className="map-action-button secondary"
-                        href={appleMapsViewUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <span aria-hidden="true">🗺️</span>
-                        Vedi in Mappe
-                      </a>
-                    )}
+                <BookingBadge
+                  activity={activity}
+                  booked={bookedActivityIds.includes(activity.id)}
+                  onToggle={() => onToggleBooked(activity.id)}
+                />
 
-                    {appleMapsDirectionsUrl && (
-                      <a
-                        className="map-action-button primary"
-                        href={appleMapsDirectionsUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <span aria-hidden="true">🚗</span>
-                        Naviga qui
-                      </a>
-                    )}
-                  </div>
-                </>
-              )}
+                {days.map((date) => {
+                  const day = tripDays.find(
+                    (item) => item.date === date,
+                  );
 
-              {activity.recommendedWinds && (
-                <div className="tag-list">
-                  {activity.recommendedWinds.map((wind) => (
-                    <span className="tag" key={wind}>
-                      {wind}
+                  return day ? (
+                    <span
+                      key={`${date}-${activity.id}`}
+                      className="day-chip"
+                      style={
+                        {
+                          '--line': day.lineColor,
+                          '--line-ink': day.lineInk,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <span className="roundel mini">
+                        {day.dayNumber}
+                      </span>
+                      {day.shortDay}
                     </span>
-                  ))}
-                </div>
-              )}
+                  ) : null;
+                })}
+              </div>
 
               {activity.practicalNote && (
-                <p className="practical-note">
+                <p className="callout-inline">
                   {activity.practicalNote}
                 </p>
               )}
 
-              {activity.custom && (
+              <DirectionsLinks activity={activity} includeView />
+
+              <div className="place-actions">
                 <button
                   type="button"
-                  className="delete-activity-button"
-                  onClick={() => handleDelete(activity)}
+                  className="link-button"
+                  onClick={() => setPlanning(activity)}
                 >
-                  Elimina attività
+                  + Aggiungi a un giorno
                 </button>
-              )}
+
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setEditing(activity)}
+                >
+                  {activity.latitude === undefined
+                    ? 'Imposta indirizzo'
+                    : 'Cambia indirizzo'}
+                </button>
+
+                {activity.custom && (
+                  <button
+                    type="button"
+                    className="link-button danger"
+                    onClick={() => handleDelete(activity)}
+                  >
+                    Elimina
+                  </button>
+                )}
+              </div>
             </article>
           );
         })}
       </div>
+
+      {showForm && (
+        <Sheet
+          title="Nuovo luogo"
+          eyebrow="Luoghi"
+          onClose={() => setShowForm(false)}
+        >
+          <PlaceForm
+            submitLabel="Salva luogo"
+            onSubmit={(activity) => {
+              onAddActivity(activity);
+              setShowForm(false);
+            }}
+          />
+        </Sheet>
+      )}
+
+      {editing && (
+        <EditPlaceSheet
+          activity={editing}
+          onSave={(patch) => onUpdatePlace(editing.id, patch)}
+          onClose={() => setEditing(null)}
+        />
+      )}
+
+      {planning && (
+        <Sheet
+          title="Aggiungi a un giorno"
+          eyebrow={planning.name}
+          onClose={() => setPlanning(null)}
+        >
+          <div className="move-days">
+            {tripDays.map((day) => (
+              <button
+                key={day.date}
+                type="button"
+                className="move-day"
+                style={
+                  {
+                    '--line': day.lineColor,
+                    '--line-ink': day.lineInk,
+                  } as React.CSSProperties
+                }
+                onClick={() => {
+                  onAddToDay(day.date, planning.id);
+                  setPlanning(null);
+                }}
+              >
+                <span className="roundel">{day.dayNumber}</span>
+
+                <span>
+                  <strong>{day.fullLabel}</strong>
+                  <small>{day.zone}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <p className="muted">
+            La tappa viene aggiunta in fondo al giorno: poi puoi
+            riordinarla dal Programma.
+          </p>
+        </Sheet>
+      )}
     </main>
   );
 }

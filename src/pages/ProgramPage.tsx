@@ -1,555 +1,510 @@
 import { useMemo, useState } from 'react';
-import { itineraries } from '../data/itineraries';
+import { AddStopSheet } from '../components/AddStopSheet';
+import { BookingBadge } from '../components/BookingBadge';
+import { DirectionsLinks } from '../components/DirectionsLinks';
+import { EditStopSheet } from '../components/EditStopSheet';
+import {
+  ArrowIcon,
+  CheckIcon,
+  PencilIcon,
+  SwapIcon,
+  TrashIcon,
+} from '../components/Icons';
+import { PageHeader } from '../components/PageHeader';
+import { Sheet } from '../components/Sheet';
+import {
+  activityTypeLabels,
+  isRateable,
+} from '../data/activityTypes';
+import {
+  TRIP_DATES_LABEL,
+  TRIP_START,
+  tripDays,
+} from '../data/trip';
+import type { DayPlansApi } from '../hooks/useDayPlans';
 import type {
   Activity,
-  DayPlan,
-  Itinerary,
-  Wind,
+  PlanItem,
+  TripDay,
 } from '../types';
-
-import {
-  createAppleMapsDirectionsUrl,
-} from '../utils/maps';
-
 
 interface ProgramPageProps {
   activities: Activity[];
   completedActivityIds: string[];
-  dayPlans: DayPlan[];
-  onUpdateWind: (date: string, wind: Wind) => void;
-  onAddActivity: (date: string, activityId: string) => void;
-  onRemoveActivity: (date: string, activityId: string) => void;
-  onMoveActivity: (
+  bookedActivityIds: string[];
+  plans: DayPlansApi;
+  selectedDate: string;
+  todayDate: string;
+  onSelectDate: (date: string) => void;
+  onToggleBooked: (activityId: string) => void;
+  onToggleItemDone: (
     date: string,
-    activityId: string,
-    direction: 'up' | 'down',
+    item: PlanItem,
+    activity?: Activity,
   ) => void;
-  onCopySuggested: (
-    date: string,
-    activityIds: string[],
-  ) => void;
+  onAddActivity: (activity: Activity) => void;
+  onShowOnMap: (date: string) => void;
 }
 
-interface TripDay {
-  date: string;
-  shortDay: string;
-  dayNumber: string;
-  fullLabel: string;
-  lockedItineraryId?: string;
+function lineStyle(day: TripDay): React.CSSProperties {
+  return {
+    '--line': day.lineColor,
+    '--line-ink': day.lineInk,
+  } as React.CSSProperties;
 }
 
-const tripDays: TripDay[] = [
-  {
-    date: '2026-08-09',
-    shortDay: 'Dom',
-    dayNumber: '9',
-    fullLabel: 'Domenica 9 agosto',
-    lockedItineraryId: 'arrival-adriatic',
-  },
-  {
-    date: '2026-08-10',
-    shortDay: 'Lun',
-    dayNumber: '10',
-    fullLabel: 'Lunedì 10 agosto',
-  },
-  {
-    date: '2026-08-11',
-    shortDay: 'Mar',
-    dayNumber: '11',
-    fullLabel: 'Martedì 11 agosto',
-  },
-  {
-    date: '2026-08-12',
-    shortDay: 'Mer',
-    dayNumber: '12',
-    fullLabel: 'Mercoledì 12 agosto',
-  },
-  {
-    date: '2026-08-13',
-    shortDay: 'Gio',
-    dayNumber: '13',
-    fullLabel: 'Giovedì 13 agosto',
-  },
-];
+function describeCountdown(todayDate: string): string | null {
+  const lastDate = tripDays[tripDays.length - 1].date;
 
-const windOptions: Array<{
-  value: Wind;
-  label: string;
-}> = [
-  { value: 'tramontana', label: 'Tramontana' },
-  { value: 'maestrale', label: 'Maestrale' },
-  { value: 'grecale', label: 'Grecale' },
-  { value: 'scirocco', label: 'Scirocco' },
-  { value: 'ostro', label: 'Ostro' },
-  { value: 'variabile', label: 'Variabile' },
-];
+  if (todayDate < TRIP_START) {
+    const toMidnight = (value: string) => {
+      const [year, month, day] = value.split('-').map(Number);
 
-function getRemainingActivityIds(
-  itinerary: Itinerary,
-  completedActivityIds: string[],
-) {
-  return itinerary.activityIds.filter(
-    (activityId) => !completedActivityIds.includes(activityId),
-  );
+      return Date.UTC(year, month - 1, day);
+    };
+
+    const days = Math.round(
+      (toMidnight(TRIP_START) - toMidnight(todayDate)) / 86_400_000,
+    );
+
+    return days === 1
+      ? 'Si parte domani'
+      : `Mancano ${days} giorni alla partenza`;
+  }
+
+  if (todayDate > lastDate) {
+    return 'Viaggio concluso: ora le pagelle!';
+  }
+
+  const index = tripDays.findIndex((day) => day.date === todayDate);
+
+  return `Oggi è il giorno ${index + 1} di ${tripDays.length}`;
 }
 
 export function ProgramPage({
   activities,
   completedActivityIds,
-  dayPlans,
-  onUpdateWind,
+  bookedActivityIds,
+  plans,
+  selectedDate,
+  todayDate,
+  onSelectDate,
+  onToggleBooked,
+  onToggleItemDone,
   onAddActivity,
-  onRemoveActivity,
-  onMoveActivity,
-  onCopySuggested,
+  onShowOnMap,
 }: ProgramPageProps) {
-  const [selectedDate, setSelectedDate] =
-    useState<string>('2026-08-09');
+  const [editMode, setEditMode] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [editingItemId, setEditingItemId] =
+    useState<string | null>(null);
+  const [movingItemId, setMovingItemId] =
+    useState<string | null>(null);
 
-  const [activityToAdd, setActivityToAdd] = useState('');
-
-  const selectedTripDay =
-    tripDays.find((day) => day.date === selectedDate) ??
+  const day =
+    tripDays.find((item) => item.date === selectedDate) ??
     tripDays[0];
 
-  const selectedPlan =
-    dayPlans.find((plan) => plan.date === selectedDate) ??
-    dayPlans[0];
+  const plan =
+    plans.dayPlans.find((item) => item.date === day.date) ??
+    plans.dayPlans[0];
 
-  const suggestedItinerary = useMemo(() => {
-    if (!selectedPlan) {
-      return undefined;
-    }
+  const activityById = useMemo(
+    () => new Map(activities.map((item) => [item.id, item])),
+    [activities],
+  );
 
-    if (selectedTripDay.lockedItineraryId) {
-      const lockedItinerary = itineraries.find(
-        (itinerary) =>
-          itinerary.id === selectedTripDay.lockedItineraryId,
-      );
+  const stops = useMemo(
+    () =>
+      plan.items.map((item) => ({
+        item,
+        activity: item.activityId
+          ? activityById.get(item.activityId)
+          : undefined,
+      })),
+    [plan.items, activityById],
+  );
 
-      if (
-        lockedItinerary &&
-        getRemainingActivityIds(
-          lockedItinerary,
-          completedActivityIds,
-        ).length > 0
-      ) {
-        return lockedItinerary;
-      }
-    }
-
-    return itineraries
-      .filter((itinerary) =>
-        itinerary.recommendedWinds.includes(
-          selectedPlan.selectedWind,
-        ),
-      )
-      .filter(
-        (itinerary) =>
-          getRemainingActivityIds(
-            itinerary,
-            completedActivityIds,
-          ).length > 0,
-      )
-      .sort((first, second) => {
-        const firstRemaining = getRemainingActivityIds(
-          first,
-          completedActivityIds,
-        ).length;
-
-        const secondRemaining = getRemainingActivityIds(
-          second,
-          completedActivityIds,
-        ).length;
-
-        return secondRemaining - firstRemaining;
-      })[0];
-  }, [
-    selectedPlan,
-    selectedTripDay.lockedItineraryId,
-    completedActivityIds,
-  ]);
-
-  const suggestedActivities = useMemo(() => {
-    if (!suggestedItinerary) {
-      return [];
-    }
-
-    return getRemainingActivityIds(
-      suggestedItinerary,
-      completedActivityIds,
-    )
-      .map((activityId) =>
-        activities.find((activity) => activity.id === activityId),
-      )
-      .filter(
-        (activity): activity is Activity =>
-          activity !== undefined,
-      );
-  }, [
-    suggestedItinerary,
-    completedActivityIds,
-    activities,
-  ]);
-
-  const customItineraryActivities = useMemo(() => {
-    if (!selectedPlan) {
-      return [];
-    }
-
-    return selectedPlan.activityIds
-      .map((activityId) =>
-        activities.find((activity) => activity.id === activityId),
-      )
-      .filter(
-        (activity): activity is Activity =>
-          activity !== undefined,
-      );
-  }, [selectedPlan, activities]);
-
-  const availableActivities = useMemo(() => {
-    if (!selectedPlan) {
-      return [];
-    }
-
-    return activities.filter(
-      (activity) =>
-        !selectedPlan.activityIds.includes(activity.id) &&
-        !completedActivityIds.includes(activity.id),
+  function isDone(item: PlanItem, activity?: Activity): boolean {
+    return (
+      Boolean(item.done) ||
+      (activity !== undefined &&
+        isRateable(activity.type) &&
+        completedActivityIds.includes(activity.id))
     );
-  }, [activities, selectedPlan, completedActivityIds]);
-
-  if (!selectedPlan) {
-    return null;
   }
 
-  function handleAddActivity() {
-    if (!activityToAdd) {
-      return;
-    }
+  const doneCount = stops.filter(({ item, activity }) =>
+    isDone(item, activity),
+  ).length;
 
-    onAddActivity(selectedDate, activityToAdd);
-    setActivityToAdd('');
+  const pendingBookings = stops.filter(
+    ({ activity }) =>
+      activity?.booking === 'required' &&
+      !bookedActivityIds.includes(activity.id),
+  ).length;
+
+  const editingStop = stops.find(
+    ({ item }) => item.id === editingItemId,
+  );
+
+  const movingStop = stops.find(
+    ({ item }) => item.id === movingItemId,
+  );
+
+  const countdown = describeCountdown(todayDate);
+
+  function handleRemove(item: PlanItem, label: string) {
+    if (window.confirm(`Togliere “${label}” dal programma?`)) {
+      plans.removeItem(day.date, item.id);
+    }
   }
 
-  function handleCopySuggested() {
-    if (suggestedActivities.length === 0) {
-      return;
+  function handleReset() {
+    if (
+      window.confirm(
+        `Ripristinare l’itinerario originale di ${day.fullLabel.toLowerCase()}? Le modifiche a questo giorno andranno perse.`,
+      )
+    ) {
+      plans.resetDay(day.date);
     }
-
-    onCopySuggested(
-      selectedDate,
-      suggestedActivities.map((activity) => activity.id),
-    );
   }
 
   return (
-    <main className="page">
-      <header className="page-header">
-        <p className="eyebrow">Puglia 2026</p>
-        <h1>Programma</h1>
-        <p className="page-subtitle">
-          Organizza le giornate in base al vento e alle attività
-          ancora da fare.
-        </p>
-      </header>
+    <main className="page" style={lineStyle(day)}>
+      <PageHeader
+        eyebrow={`Parigi · ${TRIP_DATES_LABEL}`}
+        title="Programma"
+        subtitle={countdown}
+      />
 
       <nav
         className="day-selector"
         aria-label="Seleziona il giorno"
       >
-        {tripDays.map((day) => {
-          const isSelected = day.date === selectedDate;
+        {tripDays.map((item) => {
+          const isSelected = item.date === day.date;
 
           return (
             <button
-              key={day.date}
+              key={item.date}
               type="button"
               className={`day-button ${
                 isSelected ? 'selected' : ''
-              }`}
-              onClick={() => {
-                setSelectedDate(day.date);
-                setActivityToAdd('');
-              }}
+              } ${item.date === todayDate ? 'today' : ''}`}
+              style={lineStyle(item)}
+              onClick={() => onSelectDate(item.date)}
+              aria-pressed={isSelected}
             >
-              <span>{day.shortDay}</span>
-              <strong>{day.dayNumber}</strong>
+              <span className="roundel">{item.dayNumber}</span>
+              <span className="day-button-label">
+                {item.shortDay}
+              </span>
             </button>
           );
         })}
       </nav>
 
-      <section className="selected-day-heading">
-        <div>
-          <p className="section-label">Giornata selezionata</p>
-          <h2>{selectedTripDay.fullLabel}</h2>
-        </div>
+      <section className="day-card">
+        <div className="day-card-head">
+          <span className="roundel big">{day.dayNumber}</span>
 
-        {selectedDate === '2026-08-09' && (
-          <span className="day-status-badge">Arrivo</span>
-        )}
-
-        {selectedDate === '2026-08-13' && (
-          <span className="day-status-badge">Partenza</span>
-        )}
-      </section>
-
-      <section className="card wind-card">
-        <div className="section-heading">
           <div>
-            <p className="section-label">Vento previsto</p>
-            <h2>Che vento ci sarà?</h2>
-          </div>
-
-          <span className="wind-symbol" aria-hidden="true">
-            🌬️
-          </span>
-        </div>
-
-        <div className="wind-options">
-          {windOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`wind-button ${
-                selectedPlan.selectedWind === option.value
-                  ? 'selected'
-                  : ''
-              }`}
-              onClick={() =>
-                onUpdateWind(selectedDate, option.value)
-              }
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="card itinerary-card">
-        <div className="itinerary-section-header">
-          <div>
-            <div className="recommendation-badge">
-              Itinerario consigliato
-            </div>
-
-            {suggestedItinerary && (
-              <>
-                <p className="section-label">
-                  Costa {suggestedItinerary.coast}
-                </p>
-
-                <h2>{suggestedItinerary.name}</h2>
-              </>
-            )}
-          </div>
-        </div>
-
-        {suggestedItinerary &&
-        suggestedActivities.length > 0 ? (
-          <>
-            <p className="itinerary-description">
-              {suggestedItinerary.description}
+            <p className="day-date">
+              {day.fullLabel}
+              {day.badge && (
+                <span className="day-badge">{day.badge}</span>
+              )}
             </p>
 
-            <div className="timeline">
-              {suggestedActivities.map((activity, index) => {
-                const directionsUrl =
-                    createAppleMapsDirectionsUrl(activity);
-
-                return (
-                    <article
-                    className="timeline-item"
-                    key={activity.id}
-                    >
-                    <div className="timeline-marker">
-                        <span>{index + 1}</span>
-                    </div>
-
-                    <div>
-                        <h3>{activity.name}</h3>
-                        <p>{activity.description}</p>
-
-                        {activity.practicalNote && (
-                        <p className="practical-note">
-                            {activity.practicalNote}
-                        </p>
-                        )}
-
-                        {directionsUrl && (
-                        <a
-                            href={directionsUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-directions-link"
-                        >
-                            🚗 Naviga qui
-                        </a>
-                        )}
-                    </div>
-                    </article>
-                );
-                })}
-            </div>
-
-            <button
-              type="button"
-              className="copy-itinerary-button"
-              onClick={handleCopySuggested}
-            >
-              Usa come mio itinerario
-            </button>
-          </>
-        ) : (
-          <div className="small-empty-state">
-            <span aria-hidden="true">🎉</span>
-            <div>
-              <h3>Nessun suggerimento disponibile</h3>
-              <p>
-                Avete già completato le attività compatibili con
-                questo vento, oppure il vento è ancora variabile.
-              </p>
-            </div>
+            <h2>{day.zone}</h2>
           </div>
-        )}
-      </section>
-
-      <section className="card custom-itinerary-card">
-        <div className="custom-itinerary-heading">
-          <div>
-            <p className="section-label">Personalizzato</p>
-            <h2>Il mio itinerario</h2>
-          </div>
-
-          <span className="custom-itinerary-icon">✏️</span>
         </div>
 
-        <div className="add-itinerary-activity">
-          <select
-            value={activityToAdd}
-            onChange={(event) =>
-              setActivityToAdd(event.target.value)
-            }
-          >
-            <option value="">Scegli un’attività...</option>
+        <p className="day-tagline">{day.tagline}</p>
 
-            {availableActivities.map((activity) => (
-              <option key={activity.id} value={activity.id}>
-                {activity.name}
-              </option>
-            ))}
-          </select>
+        <p className="day-route">
+          <span>Percorso</span> {day.route}
+        </p>
 
-          <button
-            type="button"
-            className="primary-add-button"
-            onClick={handleAddActivity}
-            disabled={!activityToAdd}
-          >
-            Aggiungi
-          </button>
-        </div>
+        <div className="day-stats">
+          <span>
+            <strong>{doneCount}</strong>/{stops.length} fatte
+          </span>
 
-        {customItineraryActivities.length > 0 ? (
-          <div className="custom-itinerary-list">
-{customItineraryActivities.map(
-  (activity, index) => {
-    const directionsUrl =
-      createAppleMapsDirectionsUrl(activity);
-
-    return (
-      <article
-        className="custom-itinerary-item"
-        key={activity.id}
-      >
-        <div className="custom-itinerary-number">
-          {index + 1}
-        </div>
-
-        <div className="custom-itinerary-content">
-          <h3>{activity.name}</h3>
-          <p>{activity.description}</p>
-
-          {directionsUrl && (
-            <a
-              href={directionsUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-directions-link"
-            >
-              🚗 Naviga qui
-            </a>
+          {pendingBookings > 0 && (
+            <span className="alert">
+              <strong>{pendingBookings}</strong> da prenotare
+            </span>
           )}
-        </div>
-
-        <div className="itinerary-actions">
-          <button
-            type="button"
-            onClick={() =>
-              onMoveActivity(
-                selectedDate,
-                activity.id,
-                'up',
-              )
-            }
-            disabled={index === 0}
-            aria-label={`Sposta ${activity.name} verso l’alto`}
-          >
-            ↑
-          </button>
 
           <button
             type="button"
-            onClick={() =>
-              onMoveActivity(
-                selectedDate,
-                activity.id,
-                'down',
-              )
-            }
-            disabled={
-              index ===
-              customItineraryActivities.length - 1
-            }
-            aria-label={`Sposta ${activity.name} verso il basso`}
+            className="link-button"
+            onClick={() => onShowOnMap(day.date)}
           >
-            ↓
-          </button>
-
-          <button
-            type="button"
-            className="remove-itinerary-item"
-            onClick={() =>
-              onRemoveActivity(
-                selectedDate,
-                activity.id,
-              )
-            }
-            aria-label={`Rimuovi ${activity.name}`}
-          >
-            ×
+            Vedi sulla mappa ›
           </button>
         </div>
-      </article>
-    );
-  },
-)}
+      </section>
+
+      <section className="itinerary" aria-label="Tappe del giorno">
+        <div className="itinerary-heading">
+          <h2 className="rule-heading">Il programma</h2>
+
+          <button
+            type="button"
+            className={`button small ${
+              editMode ? 'primary' : 'outline'
+            }`}
+            onClick={() => setEditMode((current) => !current)}
+            aria-pressed={editMode}
+          >
+            <PencilIcon size={16} />
+            {editMode ? 'Fine' : 'Modifica'}
+          </button>
+        </div>
+
+        {stops.length === 0 ? (
+          <div className="empty-state">
+            <h3>Giornata libera</h3>
+            <p>
+              Nessuna tappa in programma. Aggiungine una oppure
+              ripristina l’itinerario originale.
+            </p>
           </div>
         ) : (
-          <div className="small-empty-state">
-            <span aria-hidden="true">📋</span>
+          <ol className="stops">
+            {stops.map(({ item, activity }, index) => {
+              const done = isDone(item, activity);
 
-            <div>
-              <h3>Itinerario ancora vuoto</h3>
-              <p>
-                Aggiungi le attività manualmente oppure copia
-                l’itinerario consigliato.
-              </p>
-            </div>
-          </div>
+              const title =
+                item.title ?? activity?.name ?? 'Tappa';
+
+              const isMinor =
+                !activity || activity.type === 'logistics';
+
+              const note =
+                item.note ??
+                (activity && !activity.booking
+                  ? activity.practicalNote
+                  : undefined);
+
+              return (
+                <li
+                  key={item.id}
+                  className={`stop ${isMinor ? 'minor' : ''} ${
+                    done ? 'done' : ''
+                  }`}
+                >
+                  <div className="stop-time">
+                    {item.time ?? ''}
+                  </div>
+
+                  <div className="stop-rail">
+                    <button
+                      type="button"
+                      className="stop-check"
+                      onClick={() =>
+                        onToggleItemDone(day.date, item, activity)
+                      }
+                      aria-pressed={done}
+                      aria-label={
+                        done
+                          ? `Segna “${title}” come da fare`
+                          : `Segna “${title}” come fatta`
+                      }
+                    >
+                      <span className="stop-dot">
+                        {done && !isMinor && <CheckIcon size={12} />}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="stop-body">
+                    <h3>{title}</h3>
+
+                    {activity && (
+                      <div className="stop-meta">
+                        {activity.type !== 'logistics' && (
+                          <span className="chip">
+                            {activityTypeLabels[activity.type]}
+                          </span>
+                        )}
+
+                        <BookingBadge
+                          activity={activity}
+                          booked={bookedActivityIds.includes(
+                            activity.id,
+                          )}
+                          onToggle={() =>
+                            onToggleBooked(activity.id)
+                          }
+                        />
+                      </div>
+                    )}
+
+                    {note && <p className="stop-note">{note}</p>}
+
+                    {activity && !editMode && (
+                      <DirectionsLinks activity={activity} />
+                    )}
+
+                    {editMode && (
+                      <div className="stop-tools">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            plans.moveItem(day.date, item.id, 'up')
+                          }
+                          disabled={index === 0}
+                        >
+                          <ArrowIcon direction="up" />
+                          Su
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            plans.moveItem(day.date, item.id, 'down')
+                          }
+                          disabled={index === stops.length - 1}
+                        >
+                          <ArrowIcon direction="down" />
+                          Giù
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditingItemId(item.id)}
+                        >
+                          <PencilIcon />
+                          Modifica
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setMovingItemId(item.id)}
+                        >
+                          <SwapIcon />
+                          Giorno
+                        </button>
+
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => handleRemove(item, title)}
+                        >
+                          <TrashIcon />
+                          Togli
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+
+        <button
+          type="button"
+          className="button dashed block"
+          onClick={() => setAdding(true)}
+        >
+          + Aggiungi una tappa
+        </button>
+
+        {editMode && (
+          <button
+            type="button"
+            className="link-button center"
+            onClick={handleReset}
+          >
+            Ripristina l’itinerario originale di questo giorno
+          </button>
         )}
       </section>
+
+      {day.tips.map((tip) => (
+        <aside
+          key={tip.title}
+          className={`callout ${tip.tone}`}
+        >
+          <h3>{tip.title}</h3>
+          <p>{tip.text}</p>
+        </aside>
+      ))}
+
+      {adding && (
+        <AddStopSheet
+          dayLabel={day.fullLabel}
+          activities={activities}
+          activityIdsInDay={plan.items
+            .map((item) => item.activityId)
+            .filter((id): id is string => id !== undefined)}
+          onAddActivity={onAddActivity}
+          onAddItem={(item) => plans.addItem(day.date, item)}
+          onClose={() => setAdding(false)}
+        />
+      )}
+
+      {editingStop && (
+        <EditStopSheet
+          item={editingStop.item}
+          activity={editingStop.activity}
+          onSave={(patch) =>
+            plans.updateItem(day.date, editingStop.item.id, patch)
+          }
+          onClose={() => setEditingItemId(null)}
+        />
+      )}
+
+      {movingStop && (
+        <Sheet
+          title="Sposta in un altro giorno"
+          eyebrow={
+            movingStop.item.title ??
+            movingStop.activity?.name ??
+            'Tappa'
+          }
+          onClose={() => setMovingItemId(null)}
+        >
+          <div className="move-days">
+            {tripDays
+              .filter((item) => item.date !== day.date)
+              .map((item) => (
+                <button
+                  key={item.date}
+                  type="button"
+                  className="move-day"
+                  style={lineStyle(item)}
+                  onClick={() => {
+                    plans.moveItemToDay(
+                      day.date,
+                      movingStop.item.id,
+                      item.date,
+                    );
+
+                    setMovingItemId(null);
+                  }}
+                >
+                  <span className="roundel">{item.dayNumber}</span>
+
+                  <span>
+                    <strong>{item.fullLabel}</strong>
+                    <small>{item.zone}</small>
+                  </span>
+                </button>
+              ))}
+          </div>
+
+          <p className="muted">
+            La tappa viene aggiunta in fondo al giorno scelto:
+            poi puoi spostarla con le frecce.
+          </p>
+        </Sheet>
+      )}
     </main>
   );
 }
