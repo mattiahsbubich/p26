@@ -6,13 +6,15 @@
   background: var(--paper);
 }
 
-/* Sfondo: la stella dell'Étoile e il giro della Senna, appena accennati */
+/* Sfondo: le piastrelle bianche smussate delle stazioni del métro */
 .app-shell::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 0;
-  background: url('./assets/paris-bg.svg') center / cover no-repeat;
+  background:
+    linear-gradient(180deg, rgba(244, 237, 224, 0) 70%, rgba(244, 237, 224, 0.55)),
+    url('./assets/metro-tiles.svg') 0 0 / 54px 36px repeat;
   pointer-events: none;
 }
 
